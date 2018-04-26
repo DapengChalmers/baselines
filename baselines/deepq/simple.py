@@ -82,12 +82,12 @@ def learn(env,
           lr=5e-4,
           max_timesteps=100000,
           buffer_size=50000,
-          exploration_fraction=0.9,
+          exploration_fraction=0.1,
           exploration_final_eps=0.02,
           train_freq=1,
           batch_size=32,
           print_freq=100,
-          checkpoint_freq=None,
+          checkpoint_freq=20000,
           learning_starts=1000,
           gamma=1.0,
           target_network_update_freq=500,
@@ -97,7 +97,8 @@ def learn(env,
           prioritized_replay_beta_iters=None,
           prioritized_replay_eps=1e-6,
           param_noise=False,
-          callback=None):
+          callback=None,
+          load_path=None):  #
     """Train a deepq model.
 
     Parameters
@@ -210,6 +211,21 @@ def learn(env,
 
     # Initialize the parameters and copy them to the target network.
     U.initialize()
+
+    if load_path is not None:
+        try:
+            with open(load_path, "rb") as f:
+                model_data, act_params = cloudpickle.load(f)
+            with tempfile.TemporaryDirectory() as td:
+                arc_path = os.path.join(td, "packed.zip")
+                with open(arc_path, "wb") as f:
+                    f.write(model_data)
+
+                zipfile.ZipFile(arc_path, 'r', zipfile.ZIP_DEFLATED).extractall(td)
+                load_state(os.path.join(td, "model"))
+            pass
+        except FileNotFoundError as e:
+            pass
     update_target()
 
     episode_rewards = [0.0]
