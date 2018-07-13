@@ -277,6 +277,23 @@ def learn(env,
                     obses_t, actions, rewards, obses_tp1, dones = replay_buffer.sample(batch_size)
                     weights, batch_idxes = np.ones_like(rewards), None
                 td_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights)
+
+                """
+                # Trace large td errors
+                large_td_errors = td_errors[np.abs(td_errors)>10]
+                large_td_errors_obses_t = obses_t[np.abs(td_errors)>10]
+                large_td_errors_actions = actions[np.abs(td_errors)>10]
+                large_td_errors_rewards = rewards[np.abs(td_errors)>10]
+                large_td_errors_obses_tp1 = obses_tp1[np.abs(td_errors)>10]
+                large_td_errors_dones = dones[np.abs(td_errors)>10]
+                np.set_printoptions(precision=3)
+                for l in range(len(large_td_errors)):
+                    #if not large_td_errors_dones[l]:
+                    print('Terminate', large_td_errors_dones[l],'td error', large_td_errors[l],
+                          'rewards', large_td_errors_rewards[l],'actions', large_td_errors_actions[l],
+                          'obses_t', large_td_errors_obses_t[l],
+                          'obses_tp1', large_td_errors_obses_tp1[l])
+                """
                 if prioritized_replay:
                     new_priorities = np.abs(td_errors) + prioritized_replay_eps
                     replay_buffer.update_priorities(batch_idxes, new_priorities)
