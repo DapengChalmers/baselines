@@ -91,7 +91,7 @@ def learn(env,
           learning_starts=1000,
           gamma=1.0,
           target_network_update_freq=500,
-          prioritized_replay=False,
+          prioritized_replay=True,
           prioritized_replay_alpha=0.6,
           prioritized_replay_beta0=0.4,
           prioritized_replay_beta_iters=None,
@@ -232,6 +232,9 @@ def learn(env,
     saved_mean_reward = None
     obs = env.reset()
     reset = True
+    td_errors = [0]
+    n_step = 0
+
     with tempfile.TemporaryDirectory() as td:
         model_saved = False
         model_file = os.path.join(td, "model")
@@ -277,15 +280,16 @@ def learn(env,
                     obses_t, actions, rewards, obses_tp1, dones = replay_buffer.sample(batch_size)
                     weights, batch_idxes = np.ones_like(rewards), None
                 td_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights)
+                n_step += 1
 
                 """
                 # Trace large td errors
-                large_td_errors = td_errors[np.abs(td_errors)>10]
-                large_td_errors_obses_t = obses_t[np.abs(td_errors)>10]
-                large_td_errors_actions = actions[np.abs(td_errors)>10]
-                large_td_errors_rewards = rewards[np.abs(td_errors)>10]
-                large_td_errors_obses_tp1 = obses_tp1[np.abs(td_errors)>10]
-                large_td_errors_dones = dones[np.abs(td_errors)>10]
+                large_td_errors = td_errors[np.abs(td_errors)>5]
+                large_td_errors_obses_t = obses_t[np.abs(td_errors)>5]
+                large_td_errors_actions = actions[np.abs(td_errors)>5]
+                large_td_errors_rewards = rewards[np.abs(td_errors)>5]
+                large_td_errors_obses_tp1 = obses_tp1[np.abs(td_errors)>5]
+                large_td_errors_dones = dones[np.abs(td_errors)>5]
                 np.set_printoptions(precision=3)
                 for l in range(len(large_td_errors)):
                     #if not large_td_errors_dones[l]:

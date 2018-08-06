@@ -369,6 +369,7 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
     debug: {str: function}
         a bunch of functions to print debug data like q_values.
     """
+    np.random.seed(seed)
     if param_noise:
         act_f = build_act_with_param_noise(make_obs_ph, q_func, num_actions, scope=scope, reuse=reuse,
             param_noise_filter_func=param_noise_filter_func)
@@ -402,7 +403,9 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
             q_tp1_best = tf.reduce_sum(q_tp1 * tf.one_hot(q_tp1_best_using_online_net, num_actions), 1)
         else:
             q_tp1_best = tf.reduce_max(q_tp1, 1)
-        q_tp1_best_masked = (1.0 - done_mask_ph) * q_tp1_best
+        # Before as (1.0 - done_mask_ph) * q_tp1_best, now remove done mask,
+        # since we want the agent to learn the behavior that not affected by termination
+        q_tp1_best_masked = q_tp1_best
 
         # compute RHS of bellman equation
         q_t_selected_target = rew_t_ph + gamma * q_tp1_best_masked
