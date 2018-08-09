@@ -37,6 +37,21 @@ class ActWrapper(object):
 
         return ActWrapper(act, act_params)
 
+    def load_with_session(path, sess=None):
+        with open(path, "rb") as f:
+            model_data, act_params = cloudpickle.load(f)
+        act = deepq.build_act(**act_params)
+        sess.__enter__()
+        with tempfile.TemporaryDirectory() as td:
+            arc_path = os.path.join(td, "packed.zip")
+            with open(arc_path, "wb") as f:
+                f.write(model_data)
+
+            zipfile.ZipFile(arc_path, 'r', zipfile.ZIP_DEFLATED).extractall(td)
+            load_state(os.path.join(td, "model"))
+
+        return ActWrapper(act, act_params)
+
     def __call__(self, *args, **kwargs):
         return self._act(*args, **kwargs)
 
@@ -75,6 +90,23 @@ def load(path):
         and returns actions.
     """
     return ActWrapper.load(path)
+
+
+def load_with_session(path, session=None):
+    """Load act function that was returned by learn function.
+
+    Parameters
+    ----------
+    path: str
+        path to the act function pickle
+
+    Returns
+    -------
+    act: ActWrapper
+        function that takes a batch of observations
+        and returns actions.
+    """
+    return ActWrapper.load_with_session(path, session)
 
 
 def learn(env,
