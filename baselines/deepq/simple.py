@@ -5,6 +5,7 @@ import tensorflow as tf
 import zipfile
 import cloudpickle
 import numpy as np
+import copy
 
 import gym
 import baselines.common.tf_util as U
@@ -270,7 +271,10 @@ def learn(env,
     with tempfile.TemporaryDirectory() as td:
         model_saved = False
         model_file = os.path.join(td, "model")
-        for t in range(max_timesteps):
+        t = 0
+        t_planned = 0
+        while t < max_timesteps-t_planned:
+            t += 1
             if callback is not None:
                 if callback(locals(), globals()):
                     break
@@ -289,13 +293,49 @@ def learn(env,
                 kwargs['reset'] = reset
                 kwargs['update_param_noise_threshold'] = update_param_noise_threshold
                 kwargs['update_param_noise_scale'] = True
-            action = act(np.array(obs)[None], update_eps=update_eps, **kwargs)[0][0]
-            env_action = action
+            action, q_values = act(np.array(obs)[None], update_eps=update_eps, **kwargs)
+            env_action = action[0]
             reset = False
-            new_obs, rew, done, _ = env.step(env_action)
-            # Store transition in the replay buffer.
-            replay_buffer.add(obs, action, rew, new_obs, float(done))
-            obs = new_obs
+
+            planning = True
+            q_values_copy = copy.deepcopy(q_values[0])
+            q_values_copy.sort()
+            q_values_copy = q_values_copy[::-1]
+            # add model based planning before choosing the action for the real world
+            if action[0] != np.max(q_values[0]):  # doing explore
+                planning_action = env_action
+                new_obs, rew, done, crash = env.step(planning_action, planning=planning)
+                replay_buffer.add(obs, planning_action, rew, new_obs, float(done))  # Store transition in the replay buffer.
+                if crash:
+                    i = 0
+                    while i < len(q_values[0]):
+                        planning_action = np.where(q_values[0] == q_values_copy[i])[0]
+                        for action in planning_action:
+                            i += 1
+                            if action == env_action:
+                                continue  # the epsilon action has been tried, and experience has been added
+                            new_obs, rew, done, crash = env.step(action, planning=planning)
+                            replay_buffer.add(obs, action, rew, new_obs, float(done))  # Store transition in the replay buffer.
+                            t_planned += 1
+                            if not crash:
+                                break
+                        if not crash:
+                            break
+            else:
+                i = 0
+                while i < len(q_values[0]):
+                    planning_action = np.where(q_values[0] == q_values_copy[i])[0]
+                    for action in planning_action:
+                        i += 1
+                        new_obs, rew, done, crash = env.step(action, planning=planning)
+                        replay_buffer.add(obs, action, rew, new_obs, float(done))  # Store transition in the replay buffer.
+                        t_planned += 1
+                        if not crash:
+                            break
+                    if not crash:
+                        break
+
+            obs = new_obs  # if all action lead to crash, new_obs will be from the action with lowest q_value
 
             episode_rewards[-1] += rew
             if done:
@@ -313,23 +353,6 @@ def learn(env,
                     weights, batch_idxes = np.ones_like(rewards), None
                 td_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights)
                 n_step += 1
-
-                """
-                # Trace large td errors
-                large_td_errors = td_errors[np.abs(td_errors)>5]
-                large_td_errors_obses_t = obses_t[np.abs(td_errors)>5]
-                large_td_errors_actions = actions[np.abs(td_errors)>5]
-                large_td_errors_rewards = rewards[np.abs(td_errors)>5]
-                large_td_errors_obses_tp1 = obses_tp1[np.abs(td_errors)>5]
-                large_td_errors_dones = dones[np.abs(td_errors)>5]
-                np.set_printoptions(precision=3)
-                for l in range(len(large_td_errors)):
-                    #if not large_td_errors_dones[l]:
-                    print('Terminate', large_td_errors_dones[l],'td error', large_td_errors[l],
-                          'rewards', large_td_errors_rewards[l],'actions', large_td_errors_actions[l],
-                          'obses_t', large_td_errors_obses_t[l],
-                          'obses_tp1', large_td_errors_obses_tp1[l])
-                """
                 if prioritized_replay:
                     new_priorities = np.abs(td_errors) + prioritized_replay_eps
                     replay_buffer.update_priorities(batch_idxes, new_priorities)
