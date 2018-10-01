@@ -301,39 +301,55 @@ def learn(env,
             q_values_copy = copy.deepcopy(q_values[0])
             q_values_copy.sort()
             q_values_copy = q_values_copy[::-1]
+            explore = False
             # add model based planning before choosing the action for the real world
             if action[0] != np.max(q_values[0]):  # doing explore
+                explore = True
                 planning_action = env_action
-                new_obs, rew, done, crash = env.step(planning_action, planning=planning)
-                replay_buffer.add(obs, planning_action, rew, new_obs, float(done))  # Store transition in the replay buffer.
+                new_obs, rew, done, crash, action_taken, action_allowed = env.step(planning_action, q_values[0], planning, explore)
+                replay_buffer.add(obs, action_taken, rew, new_obs, float(done))  # Store transition in the replay buffer.
+
                 if crash:
+                    q_values_allowed_action = [q_values[0][i] for i in action_allowed]
+                    q_values_allowed_action.sort()
+                    q_values_allowed_action = q_values_allowed_action[::-1]
                     i = 0
-                    while i < len(q_values[0]):
-                        planning_action = np.where(q_values[0] == q_values_copy[i])[0]
+                    while i < len(q_values_allowed_action):
+                        planning_action = np.where(q_values[0] == q_values_allowed_action[i])[0]
                         for action in planning_action:
                             i += 1
                             if action == env_action:
                                 continue  # the epsilon action has been tried, and experience has been added
-                            new_obs, rew, done, crash = env.step(action, planning=planning)
-                            replay_buffer.add(obs, action, rew, new_obs, float(done))  # Store transition in the replay buffer.
+                            new_obs, rew, done, crash, action_taken, action_allowed = env.step(action, q_values[0], planning, explore)
+                            replay_buffer.add(obs, action_taken, rew, new_obs, float(done))  # Store transition in the replay buffer.
                             t_planned += 1
                             if not crash:
                                 break
                         if not crash:
                             break
             else:
-                i = 0
-                while i < len(q_values[0]):
-                    planning_action = np.where(q_values[0] == q_values_copy[i])[0]
-                    for action in planning_action:
-                        i += 1
-                        new_obs, rew, done, crash = env.step(action, planning=planning)
-                        replay_buffer.add(obs, action, rew, new_obs, float(done))  # Store transition in the replay buffer.
-                        t_planned += 1
+                new_obs, rew, done, crash, action_taken, action_allowed = env.step(env_action, q_values[0], planning, explore)
+                replay_buffer.add(obs, action_taken, rew, new_obs, float(done))
+                t_planned += 1
+                if crash:
+                    q_values_allowed_action = [q_values[0][i] for i in action_allowed]
+                    q_values_allowed_action.sort()
+                    q_values_allowed_action = q_values_allowed_action[::-1]
+                    # as the max of q value in action allowed set has been tried first time,
+                    # i =1 means starting from second best in allowed set
+                    i = 1
+                    while i < len(q_values_allowed_action):
+                        planning_action = np.where(q_values[0] == q_values_allowed_action[i])[0]
+                        for action in planning_action:
+                            new_obs, rew, done, crash, action_taken, action_allowed = env.step(action, q_values[0],
+                                                                                               planning, explore)
+                            replay_buffer.add(obs, action_taken, rew, new_obs, float(done))
+                            i += 1
+                            t_planned += 1
+                            if not crash:
+                                break
                         if not crash:
                             break
-                    if not crash:
-                        break
 
             obs = new_obs  # if all action lead to crash, new_obs will be from the action with lowest q_value
 
