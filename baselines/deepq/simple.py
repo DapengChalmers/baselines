@@ -131,7 +131,8 @@ def learn(env,
           prioritized_replay_eps=1e-6,
           param_noise=False,
           callback=None,
-          load_path=None):  #
+          load_path=None,
+          file_printout=None):  #
     """Train a deepq model.
 
     Parameters
@@ -263,7 +264,7 @@ def learn(env,
 
     episode_rewards = [0.0]
     saved_mean_reward = None
-    obs = env.reset()
+    obs = env.reset(file=file_printout)
     reset = True
     td_errors = [0]
     n_step = 0
@@ -306,7 +307,7 @@ def learn(env,
             if action[0] != np.max(q_values[0]):  # doing explore
                 explore = True
                 planning_action = env_action
-                new_obs, rew, done, crash, action_taken, action_allowed = env.step(planning_action, q_values[0], planning, explore)
+                new_obs, rew, done, crash, action_taken, action_allowed = env.step(planning_action, q_values[0], planning, explore, file_printout)
                 replay_buffer.add(obs, action_taken, rew, new_obs, float(done))  # Store transition in the replay buffer.
 
                 if crash:
@@ -355,7 +356,7 @@ def learn(env,
 
             episode_rewards[-1] += rew
             if done:
-                obs = env.reset()
+                obs = env.reset(file=file_printout)
                 episode_rewards.append(0.0)
                 reset = True
 
