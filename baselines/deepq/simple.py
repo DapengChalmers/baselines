@@ -15,6 +15,8 @@ from baselines import deepq
 from baselines.deepq.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
 from baselines.deepq.utils import BatchInput, load_state, save_state
 
+import pickle
+
 
 class ActWrapper(object):
     def __init__(self, act, act_params):
@@ -131,7 +133,9 @@ def learn(env,
           prioritized_replay_eps=1e-6,
           param_noise=False,
           callback=None,
-          load_path=None,
+          load_model=None,
+          log_folder=None,
+          load_buffer=None,
           file_printout=None):  #
     """Train a deepq model.
 
@@ -229,7 +233,11 @@ def learn(env,
 
     # Create the replay buffer
     if prioritized_replay:
-        replay_buffer = PrioritizedReplayBuffer(buffer_size, alpha=prioritized_replay_alpha)
+        if load_buffer is not None:
+            with open(load_buffer, 'rb') as f:
+                replay_buffer_saved = pickle.load(f)
+        else:
+            replay_buffer = PrioritizedReplayBuffer(buffer_size, alpha=prioritized_replay_alpha)
         if prioritized_replay_beta_iters is None:
             prioritized_replay_beta_iters = max_timesteps
         beta_schedule = LinearSchedule(prioritized_replay_beta_iters,
@@ -246,9 +254,9 @@ def learn(env,
     # Initialize the parameters and copy them to the target network.
     U.initialize()
 
-    if load_path is not None:
+    if load_model is not None:
         try:
-            with open(load_path, "rb") as f:
+            with open(load_model, "rb") as f:
                 model_data, act_params = cloudpickle.load(f)
             with tempfile.TemporaryDirectory() as td:
                 arc_path = os.path.join(td, "packed.zip")
@@ -294,6 +302,7 @@ def learn(env,
                 kwargs['reset'] = reset
                 kwargs['update_param_noise_threshold'] = update_param_noise_threshold
                 kwargs['update_param_noise_scale'] = True
+            """
             action, q_values = act(np.array(obs)[None], update_eps=update_eps, **kwargs)
             env_action = action[0]
             reset = False
@@ -359,11 +368,11 @@ def learn(env,
                 obs = env.reset(file=file_printout)
                 episode_rewards.append(0.0)
                 reset = True
-
+            """
             if t > learning_starts and t % train_freq == 0:
                 # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
                 if prioritized_replay:
-                    experience = replay_buffer.sample(batch_size, beta=beta_schedule.value(t))
+                    experience = replay_buffer_saved.sample(batch_size, beta=beta_schedule.value(t))
                     (obses_t, actions, rewards, obses_tp1, dones, weights, batch_idxes) = experience
                 else:
                     obses_t, actions, rewards, obses_tp1, dones = replay_buffer.sample(batch_size)
@@ -372,12 +381,12 @@ def learn(env,
                 n_step += 1
                 if prioritized_replay:
                     new_priorities = np.abs(td_errors) + prioritized_replay_eps
-                    replay_buffer.update_priorities(batch_idxes, new_priorities)
+                    replay_buffer_saved.update_priorities(batch_idxes, new_priorities)
 
             if t > learning_starts and t % target_network_update_freq == 0:
                 # Update target network periodically.
                 update_target()
-
+            """
             mean_100ep_reward = round(np.mean(episode_rewards[-101:-1]), 1)
             num_episodes = len(episode_rewards)
             if done and print_freq is not None and len(episode_rewards) % print_freq == 0:
@@ -396,9 +405,11 @@ def learn(env,
                     save_state(model_file)
                     model_saved = True
                     saved_mean_reward = mean_100ep_reward
+            """
         if model_saved:
             if print_freq is not None:
                 logger.log("Restored model with mean reward: {}".format(saved_mean_reward))
             load_state(model_file)
-
+    with open(log_folder + '/train_replay_buffer.pkl', 'wb') as f:
+        pickle.dump(replay_buffer_saved, f)
     return act
