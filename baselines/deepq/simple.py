@@ -136,7 +136,8 @@ def learn(env,
           load_model=None,
           log_folder=None,
           load_buffer=None,
-          file_printout=None):  #
+          file_printout=None,
+          human_play=None):  #
     """Train a deepq model.
 
     Parameters
@@ -232,10 +233,16 @@ def learn(env,
     act = ActWrapper(act, act_params)
 
     # Create the replay buffer
+    use_replay_buffer_only = False
     if prioritized_replay:
         if load_buffer is not None:
-            with open(load_buffer, 'rb') as f:
-                replay_buffer_saved = pickle.load(f)
+            if os.path.getsize(load_buffer) > 0:
+                with open(load_buffer, 'rb') as f:
+                    replay_buffer = pickle.load(f)
+                    use_replay_buffer_only = True
+            else:
+                print("Buffer size is zero!!! No data for training!!!")
+                return
         else:
             replay_buffer = PrioritizedReplayBuffer(buffer_size, alpha=prioritized_replay_alpha)
         if prioritized_replay_beta_iters is None:
@@ -302,77 +309,42 @@ def learn(env,
                 kwargs['reset'] = reset
                 kwargs['update_param_noise_threshold'] = update_param_noise_threshold
                 kwargs['update_param_noise_scale'] = True
-            """
-            action, q_values = act(np.array(obs)[None], update_eps=update_eps, **kwargs)
-            env_action = action[0]
-            reset = False
+            if not use_replay_buffer_only:
+                action, q_values = act(np.array(obs)[None], update_eps=update_eps, **kwargs)
+                env_action = action[0]
+                reset = False
 
-            planning = True
-            q_values_copy = copy.deepcopy(q_values[0])
-            q_values_copy.sort()
-            q_values_copy = q_values_copy[::-1]
-            explore = False
-            # add model based planning before choosing the action for the real world
-            if action[0] != np.max(q_values[0]):  # doing explore
-                explore = True
-                planning_action = env_action
-                new_obs, rew, done, crash, action_taken, action_allowed = env.step(planning_action, q_values[0], planning, explore, file_printout)
-                replay_buffer.add(obs, action_taken, rew, new_obs, float(done))  # Store transition in the replay buffer.
+                planning = True
+                q_values_copy = copy.deepcopy(q_values[0])
+                q_values_copy.sort()
+                q_values_copy = q_values_copy[::-1]
+                explore = False
+                # add model based planning before choosing the action for the real world
+                if action[0] != np.max(q_values[0]):  # doing explore
+                    explore = True
+                    planning_action = env_action
+                    new_obs, rew, done, crash, action_taken, action_allowed = env.step(planning_action, q_values[0],
+                                                                                       planning, explore, human_play,
+                                                                                       file_printout)
+                    replay_buffer.add(obs, action_taken, rew, new_obs,
+                                      float(done))  # Store transition in the replay buffer.
+                else:
+                    new_obs, rew, done, crash, action_taken, action_allowed = env.step(env_action, q_values[0],
+                                                                                       planning, explore, human_play,
+                                                                                       file_printout)
+                    replay_buffer.add(obs, action_taken, rew, new_obs, float(done))
+                    t_planned += 1
+                obs = new_obs  # if all action lead to crash, new_obs will be from the action with lowest q_value
+                episode_rewards[-1] += rew
+                if done:
+                    obs = env.reset(file=file_printout)
+                    episode_rewards.append(0.0)
+                    reset = True
 
-                if crash:
-                    q_values_allowed_action = [q_values[0][i] for i in action_allowed]
-                    q_values_allowed_action.sort()
-                    q_values_allowed_action = q_values_allowed_action[::-1]
-                    i = 0
-                    while i < len(q_values_allowed_action):
-                        planning_action = np.where(q_values[0] == q_values_allowed_action[i])[0]
-                        for action in planning_action:
-                            i += 1
-                            if action == env_action:
-                                continue  # the epsilon action has been tried, and experience has been added
-                            new_obs, rew, done, crash, action_taken, action_allowed = env.step(action, q_values[0], planning, explore)
-                            replay_buffer.add(obs, action_taken, rew, new_obs, float(done))  # Store transition in the replay buffer.
-                            t_planned += 1
-                            if not crash:
-                                break
-                        if not crash:
-                            break
-            else:
-                new_obs, rew, done, crash, action_taken, action_allowed = env.step(env_action, q_values[0], planning, explore)
-                replay_buffer.add(obs, action_taken, rew, new_obs, float(done))
-                t_planned += 1
-                if crash:
-                    q_values_allowed_action = [q_values[0][i] for i in action_allowed]
-                    q_values_allowed_action.sort()
-                    q_values_allowed_action = q_values_allowed_action[::-1]
-                    # as the max of q value in action allowed set has been tried first time,
-                    # i =1 means starting from second best in allowed set
-                    i = 1
-                    while i < len(q_values_allowed_action):
-                        planning_action = np.where(q_values[0] == q_values_allowed_action[i])[0]
-                        for action in planning_action:
-                            new_obs, rew, done, crash, action_taken, action_allowed = env.step(action, q_values[0],
-                                                                                               planning, explore)
-                            replay_buffer.add(obs, action_taken, rew, new_obs, float(done))
-                            i += 1
-                            t_planned += 1
-                            if not crash:
-                                break
-                        if not crash:
-                            break
-
-            obs = new_obs  # if all action lead to crash, new_obs will be from the action with lowest q_value
-
-            episode_rewards[-1] += rew
-            if done:
-                obs = env.reset(file=file_printout)
-                episode_rewards.append(0.0)
-                reset = True
-            """
             if t > learning_starts and t % train_freq == 0:
                 # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
                 if prioritized_replay:
-                    experience = replay_buffer_saved.sample(batch_size, beta=beta_schedule.value(t))
+                    experience = replay_buffer.sample(batch_size, beta=beta_schedule.value(t))
                     (obses_t, actions, rewards, obses_tp1, dones, weights, batch_idxes) = experience
                 else:
                     obses_t, actions, rewards, obses_tp1, dones = replay_buffer.sample(batch_size)
@@ -381,35 +353,35 @@ def learn(env,
                 n_step += 1
                 if prioritized_replay:
                     new_priorities = np.abs(td_errors) + prioritized_replay_eps
-                    replay_buffer_saved.update_priorities(batch_idxes, new_priorities)
+                    replay_buffer.update_priorities(batch_idxes, new_priorities)
 
             if t > learning_starts and t % target_network_update_freq == 0:
                 # Update target network periodically.
                 update_target()
-            """
-            mean_100ep_reward = round(np.mean(episode_rewards[-101:-1]), 1)
-            num_episodes = len(episode_rewards)
-            if done and print_freq is not None and len(episode_rewards) % print_freq == 0:
-                logger.record_tabular("steps", t)
-                logger.record_tabular("episodes", num_episodes)
-                logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
-                logger.record_tabular("% time spent exploring", int(100 * exploration.value(t)))
-                logger.dump_tabular()
 
-            if (checkpoint_freq is not None and t > learning_starts and
-                    num_episodes > 100 and t % checkpoint_freq == 0):
-                if saved_mean_reward is None or mean_100ep_reward > saved_mean_reward:
+            if not use_replay_buffer_only:
+                mean_100ep_reward = round(np.mean(episode_rewards[-101:-1]), 1)
+                num_episodes = len(episode_rewards)
+                if done and print_freq is not None and len(episode_rewards) % print_freq == 0:
+                    logger.record_tabular("steps", t)
+                    logger.record_tabular("episodes", num_episodes)
+                    logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
+                    logger.record_tabular("% time spent exploring", int(100 * exploration.value(t)))
+                    logger.dump_tabular()
+                if (checkpoint_freq is not None and t > learning_starts and
+                            num_episodes > 100 and t % checkpoint_freq == 0):
+                    if saved_mean_reward is None or mean_100ep_reward > saved_mean_reward:
+                        if print_freq is not None:
+                            logger.log("Saving model due to mean reward increase: {} -> {}".format(
+                                saved_mean_reward, mean_100ep_reward))
+                        save_state(model_file)
+                        model_saved = True
+                        saved_mean_reward = mean_100ep_reward
+                if model_saved:
                     if print_freq is not None:
-                        logger.log("Saving model due to mean reward increase: {} -> {}".format(
-                                   saved_mean_reward, mean_100ep_reward))
-                    save_state(model_file)
-                    model_saved = True
-                    saved_mean_reward = mean_100ep_reward
-            """
-        if model_saved:
-            if print_freq is not None:
-                logger.log("Restored model with mean reward: {}".format(saved_mean_reward))
-            load_state(model_file)
+                        logger.log("Restored model with mean reward: {}".format(saved_mean_reward))
+                    load_state(model_file)
+
     with open(log_folder + '/train_replay_buffer.pkl', 'wb') as f:
-        pickle.dump(replay_buffer_saved, f)
+        pickle.dump(replay_buffer, f)
     return act
