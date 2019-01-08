@@ -78,6 +78,7 @@ class ActWrapper(object):
             cloudpickle.dump((model_data, self._act_params), f)
 
 
+
 def load(path):
     """Load act function that was returned by learn function.
 
@@ -223,7 +224,8 @@ def learn(env,
         grad_norm_clipping=10,
         param_noise=param_noise
     )
-
+    writer = tf.summary.FileWriter('/Users/dapengliu/gitrepo/RoadUniverse/experiments/RoadUniverse/logs/graphs',
+                                   sess.graph)
     act_params = {
         'make_obs_ph': make_obs_ph,
         'q_func': q_func,
@@ -377,11 +379,11 @@ def learn(env,
                         save_state(model_file)
                         model_saved = True
                         saved_mean_reward = mean_100ep_reward
-                if model_saved:
-                    if print_freq is not None:
-                        logger.log("Restored model with mean reward: {}".format(saved_mean_reward))
-                    load_state(model_file)
 
+        if model_saved:
+            if print_freq is not None:
+                logger.log("Restored model with mean reward: {}".format(saved_mean_reward))
+            load_state(model_file)
     with open(log_folder + '/train_replay_buffer.pkl', 'wb') as f:
         pickle.dump(replay_buffer, f)
     return act
