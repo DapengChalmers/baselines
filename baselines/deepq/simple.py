@@ -281,7 +281,7 @@ def learn(env,
 
     episode_rewards = [0.0]
     saved_mean_reward = None
-    obs = env.reset(file=file_printout)
+    obs = env.reset(0, file=file_printout)
     reset = True
     td_errors = [0]
     n_step = 0
@@ -293,9 +293,7 @@ def learn(env,
         t_planned = 0
         while t < max_timesteps-t_planned:
             t += 1
-            if callback is not None:
-                if callback(locals(), globals()):
-                    break
+
             # Take action and update exploration to the newest value
             kwargs = {}
             if not param_noise:
@@ -325,13 +323,15 @@ def learn(env,
                 if action[0] != np.max(q_values[0]):  # doing explore
                     explore = True
                     planning_action = env_action
-                    new_obs, rew, done, crash, action_taken, action_allowed = env.step(planning_action, q_values[0],
+                    new_obs, rew, done, crash, action_taken, \
+                    action_allowed, step_to_lane_change = env.step(planning_action, q_values[0],
                                                                                        planning, explore, human_play,
                                                                                        file_printout)
                     replay_buffer.add(obs, action_taken, rew, new_obs,
                                       float(done))  # Store transition in the replay buffer.
                 else:
-                    new_obs, rew, done, crash, action_taken, action_allowed = env.step(env_action, q_values[0],
+                    new_obs, rew, done, crash, action_taken, \
+                    action_allowed, step_to_lane_change = env.step(env_action, q_values[0],
                                                                                        planning, explore, human_play,
                                                                                        file_printout)
                     replay_buffer.add(obs, action_taken, rew, new_obs, float(done))
@@ -360,6 +360,10 @@ def learn(env,
             if t > learning_starts and t % target_network_update_freq == 0:
                 # Update target network periodically.
                 update_target()
+
+            if callback is not None:
+                if callback(locals(), globals()):
+                    break
 
             if not use_replay_buffer_only:
                 mean_100ep_reward = round(np.mean(episode_rewards[-101:-1]), 1)
