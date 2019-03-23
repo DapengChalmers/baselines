@@ -138,6 +138,7 @@ def learn(env,
           log_folder=None,
           load_buffer=None,
           file_printout=None,
+          file_rewards=None,
           human_play=None):  #
     """Train a deepq model.
 
@@ -290,8 +291,7 @@ def learn(env,
         model_saved = False
         model_file = os.path.join(td, "model")
         t = 0
-        t_planned = 0
-        while t < max_timesteps-t_planned:
+        while t < max_timesteps:
             t += 1
 
             # Take action and update exploration to the newest value
@@ -314,28 +314,34 @@ def learn(env,
                 env_action = action[0]
                 reset = False
 
-                planning = True
+                planning = False
                 q_values_copy = copy.deepcopy(q_values[0])
                 q_values_copy.sort()
                 q_values_copy = q_values_copy[::-1]
                 explore = False
                 # add model based planning before choosing the action for the real world
-                if action[0] != np.max(q_values[0]):  # doing explore
+                if action[0] != np.argmax(q_values[0]):  # doing explore
                     explore = True
                     planning_action = env_action
                     new_obs, rew, done, crash, action_taken, \
                     action_allowed, step_to_lane_change = env.step(planning_action, q_values[0],
                                                                                        planning, explore, human_play,
                                                                                        file_printout)
+                    action_mask_list = np.full(env.action_space.n, -np.inf, dtype=np.float32)
+                    for action in action_allowed:
+                        action_mask_list[action] = 0
                     replay_buffer.add(obs, action_taken, rew, new_obs,
-                                      float(done))  # Store transition in the replay buffer.
+                                      float(done), action_mask_list)  # Store transition in the replay buffer.
                 else:
                     new_obs, rew, done, crash, action_taken, \
                     action_allowed, step_to_lane_change = env.step(env_action, q_values[0],
                                                                                        planning, explore, human_play,
                                                                                        file_printout)
-                    replay_buffer.add(obs, action_taken, rew, new_obs, float(done))
-                    t_planned += 1
+                    action_mask_list = np.full(env.action_space.n, -np.inf, dtype=np.float32)
+                    for action in action_allowed:
+                        action_mask_list[action] = 0
+                    replay_buffer.add(obs, action_taken, rew, new_obs, float(done), action_mask_list)
+
                 obs = new_obs  # if all action lead to crash, new_obs will be from the action with lowest q_value
                 episode_rewards[-1] += rew
                 if done:
@@ -347,11 +353,11 @@ def learn(env,
                 # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
                 if prioritized_replay:
                     experience = replay_buffer.sample(batch_size, beta=beta_schedule.value(t))
-                    (obses_t, actions, rewards, obses_tp1, dones, weights, batch_idxes) = experience
+                    (obses_t, actions, rewards, obses_tp1, dones, action_mask_list, weights, batch_idxes) = experience
                 else:
-                    obses_t, actions, rewards, obses_tp1, dones = replay_buffer.sample(batch_size)
+                    obses_t, actions, rewards, obses_tp1, dones, action_mask_list = replay_buffer.sample(batch_size)
                     weights, batch_idxes = np.ones_like(rewards), None
-                td_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights)
+                td_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights, action_mask_list)
                 n_step += 1
                 if prioritized_replay:
                     new_priorities = np.abs(td_errors) + prioritized_replay_eps
