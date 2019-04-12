@@ -139,6 +139,10 @@ def learn(env,
           load_buffer=None,
           file_printout=None,
           file_rewards=None,
+          file_time=None,
+          file_tg_lead=None,
+          file_tg_follow=None,
+          file_jerk=None,
           human_play=None):  #
     """Train a deepq model.
 
@@ -324,7 +328,8 @@ def learn(env,
                     explore = True
                     planning_action = env_action
                     new_obs, rew, done, crash, action_taken, \
-                    action_allowed, step_to_lane_change = env.step(planning_action, q_values[0],
+                    action_allowed, step_to_lane_change,\
+                    time_gap_lead_min, time_gap_follow_min, jerk_host_max = env.step(planning_action, q_values[0],
                                                                                        planning, explore, human_play,
                                                                                        file_printout)
                     action_mask_list = np.full(env.action_space.n, -np.inf, dtype=np.float32)
@@ -334,7 +339,8 @@ def learn(env,
                                       float(done), action_mask_list)  # Store transition in the replay buffer.
                 else:
                     new_obs, rew, done, crash, action_taken, \
-                    action_allowed, step_to_lane_change = env.step(env_action, q_values[0],
+                    action_allowed, step_to_lane_change,\
+                    time_gap_lead_min, time_gap_follow_min, jerk_host_max = env.step(env_action, q_values[0],
                                                                                        planning, explore, human_play,
                                                                                        file_printout)
                     action_mask_list = np.full(env.action_space.n, -np.inf, dtype=np.float32)
