@@ -396,6 +396,14 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
         # q scores for actions which we know were selected in the given state.
         q_t_selected = tf.reduce_sum(q_t * tf.one_hot(act_t_ph, num_actions), 1)
 
+        # Dapeng's supervise lose
+        q_t_max_action = tf.arg_max(q_t, 1, output_type=tf.int32)
+        q_t_max = tf.reduce_sum(q_t * tf.one_hot(q_t_max_action, num_actions), 1)
+        supervise_margin_different = tf.multiply(tf.ones_like(q_t_max_action, tf.float32), 0.8)
+        supervise_margin_same = tf.zeros_like(q_t_max_action, tf.float32)
+        supervise_margin = tf.where(tf.equal(act_t_ph, q_t_max_action), supervise_margin_same, supervise_margin_different)
+        supervise_margin_error = 0.001 * (q_t_max - tf.stop_gradient(q_t_selected - supervise_margin))
+
         # compute estimate of best possible value starting from state at t + 1
         if double_q:
             q_tp1_using_online_net = q_func(obs_tp1_input.get(), num_actions, scope="q_func", reuse=True)
@@ -414,7 +422,7 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
         # compute the error (potentially clipped)
         td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
         errors = U.huber_loss(td_error)
-        weighted_error = tf.reduce_mean(importance_weights_ph * errors)
+        weighted_error = tf.reduce_mean(importance_weights_ph * errors)  # + supervise_margin_error
 
         # compute optimization op (potentially with gradient clipping)
         if grad_norm_clipping is not None:
@@ -444,7 +452,7 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
                 importance_weights_ph,
                 allowed_action_list
             ],
-            outputs=td_error,
+            outputs=[td_error, q_t, q_t_selected, act_t_ph, q_t_max_action, supervise_margin, supervise_margin_error, errors, importance_weights_ph, weighted_error],
             updates=[optimize_expr]
         )
         update_target = U.function([], [], updates=[update_target_expr])

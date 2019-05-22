@@ -143,6 +143,7 @@ def learn(env,
           file_tg_lead=None,
           file_tg_follow=None,
           file_jerk=None,
+          file_crash=None,
           human_play=None):  #
     """Train a deepq model.
 
@@ -363,7 +364,8 @@ def learn(env,
                 else:
                     obses_t, actions, rewards, obses_tp1, dones, action_mask_list = replay_buffer.sample(batch_size)
                     weights, batch_idxes = np.ones_like(rewards), None
-                td_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights, action_mask_list)
+                #weights = np.ones_like(rewards)
+                td_errors, q_t, q_t_selected, act_t_ph, q_t_max_action, supervise_margin, supervise_margin_error, errors, importance_weights_ph, weighted_error = train(obses_t, actions, rewards, obses_tp1, dones, weights, action_mask_list)
                 n_step += 1
                 if prioritized_replay:
                     new_priorities = np.abs(td_errors) + prioritized_replay_eps
